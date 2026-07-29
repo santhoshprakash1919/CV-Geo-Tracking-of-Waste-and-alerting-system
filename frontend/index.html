@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garbage Watch — Bin Monitoring</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #171D19;
+    --bin-green: #22392C;
+    --bin-green-light: #2E4A3B;
+    --clear-green: #3E7D52;
+    --hazard-amber: #D98E2B;
+    --safety-red: #C1432E;
+    --concrete: #EFEBE3;
+    --surface: #FAF8F3;
+    --line: #D9D2C3;
+    --font-display: 'Oswald', sans-serif;
+    --font-body: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--concrete);
+    color: var(--ink);
+    font-family: var(--font-body);
+    line-height: 1.5;
+  }
+
+  /* ---- Signature hazard-stripe bar ---- */
+  .hazard-stripe {
+    height: 10px;
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--safety-red),
+      var(--safety-red) 14px,
+      var(--surface) 14px,
+      var(--surface) 28px
+    );
+  }
+  .hazard-stripe.thin { height: 5px; }
+
+  header.masthead {
+    background: var(--bin-green);
+    color: var(--surface);
+    padding: 28px 32px 24px;
+  }
+  header.masthead .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #A9C2AE;
+    margin: 0 0 6px;
+  }
+  header.masthead h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-size: clamp(28px, 4vw, 40px);
+    margin: 0;
+  }
+  header.masthead p.sub {
+    margin: 8px 0 0;
+    color: #CBD9CE;
+    font-size: 14.5px;
+    max-width: 560px;
+  }
+
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+  }
+  .panel-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .panel-head h2 {
+    font-family: var(--font-display);
+    font-size: 15px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin: 0;
+    color: var(--bin-green);
+  }
+  .panel-body { padding: 20px; }
+
+  /* ---- Upload panel ---- */
+  .drop-label {
+    display: block;
+    border: 1.5px dashed var(--line);
+    border-radius: 2px;
+    padding: 22px 14px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 13.5px;
+    color: #5A6459;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .drop-label:hover, .drop-label.has-file {
+    border-color: var(--clear-green);
+    background: #F1F6F2;
+  }
+  .drop-label .fname {
+    display: block;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--bin-green);
+    word-break: break-all;
+  }
+  input[type="file"] { display: none; }
+
+  .preview {
+    margin-top: 14px;
+    border-radius: 2px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    display: none;
+  }
+  .preview img { width: 100%; display: block; }
+
+  button.primary {
+    width: 100%;
+    margin-top: 16px;
+    background: var(--bin-green);
+    color: var(--surface);
+    border: none;
+    padding: 13px 16px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button.primary:hover { background: var(--bin-green-light); }
+  button.primary:disabled { background: #9AA69C; cursor: not-allowed; }
+
+  .status-line {
+    margin-top: 14px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: #5A6459;
+    min-height: 18px;
+  }
+  .status-line.err { color: var(--safety-red); }
+  .status-line.ok { color: var(--clear-green); }
+
+  .result-card {
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    display: none;
+  }
+  .result-card .badge-row { display: flex; align-items: center; gap: 10px; }
+  .result-card .confidence {
+    margin-top: 8px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: #5A6459;
+  }
+
+  /* ---- Stencil status badges ---- */
+  .badge {
+    display: inline-block;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 2px;
+    color: var(--surface);
+  }
+  .badge.full { background: var(--safety-red); }
+  .badge.partial { background: var(--hazard-amber); color: var(--ink); }
+  .badge.empty { background: var(--clear-green); }
+
+  /* ---- Map ---- */
+  #map { height: 460px; border-top: 1px solid var(--line); }
+
+  /* ---- Manifest / history table ---- */
+  .manifest-wrap { overflow-x: auto; }
+  table.manifest {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  table.manifest thead th {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7A8478;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1.5px solid var(--line);
+  }
+  table.manifest tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  table.manifest tbody tr:hover { background: #F5F2EA; }
+  table.manifest .empty-state td {
+    text-align: center;
+    color: #8A9188;
+    font-family: var(--font-body);
+    padding: 28px 12px;
+  }
+
+  footer {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 8px 32px 40px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: #8A9188;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+
+  a:focus-visible, button:focus-visible, label:focus-visible {
+    outline: 2px solid var(--clear-green);
+    outline-offset: 2px;
+  }
+</style>
+</head>
+<body>
+
+  <div class="hazard-stripe"></div>
+  <header class="masthead">
+    <p class="eyebrow">Municipal Sanitation · Computer Vision Unit</p>
+    <h1>Garbage Watch</h1>
+    <p class="sub">Upload a bin photo to detect its location and fill status. Full bins are flagged first for collection.</p>
+  </header>
+  <div class="hazard-stripe thin"></div>
+
+  <main>
+    <div class="grid">
+
+      <!-- Upload panel -->
+      <section class="panel">
+        <div class="panel-head"><h2>Submit Photo</h2></div>
+        <div class="panel-body">
+          <label class="drop-label" id="dropLabel" for="imageInput">
+            Choose a bin photo
+            <span class="fname" id="fname"></span>
+          </label>
+          <input type="file" id="imageInput" accept="image/*">
+
+          <div class="preview" id="previewWrap">
+            <img id="previewImg" alt="Selected bin photo preview">
+          </div>
+
+          <button class="primary" onclick="uploadImage()" id="uploadBtn">Upload &amp; Predict</button>
+          <p class="status-line" id="statusLine"></p>
+
+          <div class="result-card" id="resultCard">
+            <div class="badge-row">
+              <span class="badge" id="resultBadge"></span>
+            </div>
+            <p class="confidence" id="resultConfidence"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Map panel -->
+      <section class="panel">
+        <div class="panel-head"><h2>Bin Locations</h2></div>
+        <div id="map"></div>
+      </section>
+    </div>
+
+    <!-- Manifest -->
+    <section class="panel" style="margin-top:24px;">
+      <div class="panel-head"><h2>Collection Manifest</h2></div>
+      <div class="panel-body manifest-wrap">
+        <table class="manifest" id="historyTable">
+          <thead>
+            <tr><th>ID</th><th>Status</th><th>Confidence</th><th>Logged At</th></tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>Full → Partial → Empty collection priority · OpenStreetMap data</footer>
+
+<script>
+  const map = L.map('map').setView([11.341, 78.145], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  function colorFor(pred) {
+    return pred === 'full' ? '#C1432E' : pred === 'partial' ? '#D98E2B' : '#3E7D52';
+  }
+
+  function badgeClassFor(pred) {
+    return pred === 'full' ? 'full' : pred === 'partial' ? 'partial' : 'empty';
+  }
+
+  function loadHistory() {
+    fetch('/api/history')
+      .then(r => r.json())
+      .then(rows => {
+        const tbody = document.getElementById('historyBody');
+        tbody.innerHTML = '';
+
+        if (!rows.length) {
+          tbody.innerHTML = '<tr class="empty-state"><td colspan="4">No bins logged yet — upload a photo to begin.</td></tr>';
+          return;
+        }
+
+        rows.forEach(r => {
+          const [id, prediction, confidence, lat, lng, timestamp] = r;
+          const row = tbody.insertRow();
+          row.innerHTML = `
+            <td>#${id}</td>
+            <td><span class="badge ${badgeClassFor(prediction)}">${prediction}</span></td>
+            <td>${(confidence * 100).toFixed(1)}%</td>
+            <td>${timestamp}</td>
+          `;
+
+          if (lat && lng) {
+            // Add a small random jitter (~10-20 meters) so uploads from the exact same browser location don't perfectly stack
+            const jitterLat = lat + (Math.random() - 0.5) * 0.0005;
+            const jitterLng = lng + (Math.random() - 0.5) * 0.0005;
+
+            L.circleMarker([jitterLat, jitterLng], {
+              color: colorFor(prediction),
+              fillColor: colorFor(prediction),
+              fillOpacity: 0.85,
+              radius: 8,
+              weight: 2
+            })
+              .addTo(map)
+              .bindPopup(`Bin #${id}: <strong>${prediction}</strong> (${(confidence * 100).toFixed(1)}%)`);
+          }
+        });
+      })
+      .catch(err => {
+        console.error('Failed to load history:', err);
+      });
+  }
+
+  const fileInput = document.getElementById('imageInput');
+  const dropLabel = document.getElementById('dropLabel');
+  const fnameEl = document.getElementById('fname');
+  const previewWrap = document.getElementById('previewWrap');
+  const previewImg = document.getElementById('previewImg');
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) {
+      const file = fileInput.files[0];
+      fnameEl.textContent = file.name;
+      dropLabel.classList.add('has-file');
+      previewImg.src = URL.createObjectURL(file);
+      previewWrap.style.display = 'block';
+    }
+  });
+
+  function setStatus(text, cls) {
+    const el = document.getElementById('statusLine');
+    el.textContent = text;
+    el.className = 'status-line' + (cls ? ' ' + cls : '');
+  }
+
+  function hideResult() {
+    document.getElementById('resultCard').style.display = 'none';
+  }
+
+  function showResult(data) {
+    const card = document.getElementById('resultCard');
+    const badge = document.getElementById('resultBadge');
+    const conf = document.getElementById('resultConfidence');
+    badge.textContent = data.prediction;
+    badge.className = 'badge ' + badgeClassFor(data.prediction);
+
+    let confText = `Confidence: ${(data.confidence * 100).toFixed(1)}%`;
+    if (data.detection_confidence !== undefined) {
+      confText += ` · Bin detected at ${(data.detection_confidence * 100).toFixed(1)}%`;
+    }
+    conf.textContent = confText;
+
+    // Show a note if we only found the bin on the low-confidence fallback pass —
+    // still a usable result, but worth flagging for a small fine-tuned dataset.
+    let existingNote = card.querySelector('.low-conf-note');
+    if (existingNote) existingNote.remove();
+    if (data.low_confidence_detection) {
+      const note = document.createElement('p');
+      note.className = 'low-conf-note';
+      note.style.cssText = 'margin-top:6px;font-family:var(--font-mono);font-size:11.5px;color:var(--hazard-amber);';
+      note.textContent = 'Note: bin detected on low-confidence fallback pass — verify visually.';
+      card.appendChild(note);
+    }
+
+    card.style.display = 'block';
+  }
+
+  function submitUpload(formData) {
+    const btn = document.getElementById('uploadBtn');
+    btn.disabled = true;
+    setStatus('Predicting…');
+    hideResult();
+
+    fetch('/api/upload', { method: 'POST', body: formData })
+      .then(r => r.json().then(data => ({ status: r.status, data })))
+      .then(({ status, data }) => {
+        btn.disabled = false;
+        if (status !== 200 || data.error) {
+          setStatus(`Error: ${data.error || 'upload failed'}`, 'err');
+          hideResult();
+          return;
+        }
+        setStatus('Prediction saved.', 'ok');
+        showResult(data);
+        setTimeout(loadHistory, 400);
+      })
+      .catch(err => {
+        btn.disabled = false;
+        setStatus(`Network error: ${err.message}`, 'err');
+        hideResult();
+      });
+  }
+
+  function uploadImage() {
+    if (!fileInput.files.length) {
+      setStatus('Choose an image first.', 'err');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('image', fileInput.files[0]);
+
+    if (!navigator.geolocation) {
+      setStatus('Geolocation not supported — uploading without location.');
+      submitUpload(formData);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        formData.append('lat', pos.coords.latitude);
+        formData.append('lng', pos.coords.longitude);
+        submitUpload(formData);
+      },
+      err => {
+        setStatus(`Location unavailable (${err.message}) — uploading without it…`);
+        submitUpload(formData);
+      },
+      { timeout: 5000 }
+    );
+  }
+
+  loadHistory();
+</script>
+</body>
+</html>
