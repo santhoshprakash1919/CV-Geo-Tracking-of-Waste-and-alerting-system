@@ -1,8 +1,7 @@
 streamlit
 pydeck
 pandas
-ultralytics
+ultralytics-opencv-headless
 torch
 torchvision
 pillow
-opencv-python-headless
